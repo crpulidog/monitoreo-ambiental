@@ -165,12 +165,19 @@ class CentralDatabase:
         """Lecturas ordenadas cronológicamente para graficación multivariante."""
         with self._get_connection() as conn:
             cur = conn.cursor()
-            cur.execute("""
-            SELECT sensor, valor, es_alerta, ts
-            FROM lectura
-            ORDER BY ts ASC
-            LIMIT ?
-            """, (limite,))
+            placeholder = "?" if self.is_sqlite else "%s"
+            cur.execute(f"""
+                SELECT sensor, valor, es_alerta, ts
+                FROM lectura
+                ORDER BY ts ASC
+                LIMIT {placeholder}
+                """, (limite,))
+            #cur.execute("""
+            #    SELECT sensor, valor, es_alerta, ts
+            #    FROM lectura
+            #    ORDER BY ts ASC
+            #    LIMIT ?
+            #    """, (limite,))
             filas = (
                 [dict(r) for r in cur.fetchall()]
                 if self.is_sqlite
@@ -194,12 +201,13 @@ class CentralDatabase:
         """Alertas críticas más recientes registradas en el sistema."""
         with self._get_connection() as conn:
             cur = conn.cursor()
-            cur.execute("""
+            placeholder = "?" if self.is_sqlite else "%s"
+            cur.execute(f"""
             SELECT id, nodo_id, sensor, valor, ts
             FROM lectura
             WHERE es_alerta = 1
             ORDER BY ts DESC
-            LIMIT ?
+            LIMIT {placeholder}
             """, (limite,))
             if self.is_sqlite:
                 return [dict(r) for r in cur.fetchall()]
