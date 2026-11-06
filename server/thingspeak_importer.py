@@ -19,7 +19,6 @@ UMBRALES_ALERTA = {
 
 
 def _normalizar_sensor(nombre: str, fallback: str) -> str:
-    """Infiere el tipo de sensor a partir del nombre del campo del canal."""
     n = nombre.lower()
     if "temp" in n:
         return "temperatura"
@@ -29,6 +28,13 @@ def _normalizar_sensor(nombre: str, fallback: str) -> str:
         return "pm25"
     if "co2" in n or "carbon" in n:
         return "co2"
+    if "lux" in n or "light" in n or "luz" in n or "ilum" in n:
+        return "iluminacion"
+    if "pres" in n or "baro" in n:
+        return "presion"
+    if "viento" in n or "wind" in n:
+        return "viento"
+    
     return DEFAULT_FIELD_MAP.get(fallback, fallback)
 
 

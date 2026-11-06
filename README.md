@@ -101,7 +101,12 @@ sudo docker run hello-world
 sudo usermod -aG docker $USER
 ```
 
+Si quieres borrar el histórico, solo si quieres reiniciar los datos del dashboard
+```bash
+docker compose down -v
+```
 
+Para crear la imagen
 ```bash
 # Producción con PostgreSQL incluido
 docker compose up --build

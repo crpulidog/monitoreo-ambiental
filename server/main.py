@@ -4,15 +4,17 @@ import uuid
 import random
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, HTTPException, Request, status, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from server.db import CentralDatabase
 from server.thingspeak_importer import parsear_thingspeak_json
 from etl.etl_hourly import EnvironmentalETL
+
+import requests
 
 app = FastAPI(
     title="Sistema de Monitoreo Ambiental – API de Ingestión",
@@ -142,11 +144,9 @@ async def importar_thingspeak(request: Request):
 def obtener_kpis():
     return db.obtener_kpis()
 
-
 @app.get("/api/v1/timeseries")
-def obtener_timeseries(limite: int = 150):
-    return db.obtener_series_temporales(limite=limite)
-
+def obtener_timeseries(limite: int = 1500, fecha: str = None):
+    return db.obtener_series_temporales(limite=limite, fecha=fecha)
 
 @app.get("/api/v1/alerts")
 def obtener_alertas(limite: int = 15):
@@ -185,6 +185,50 @@ def simular_telemetria(con_alerta: bool = False, cantidad: int = 5):
     db.insertar_lote_idempotente(nuevas)
     return {"status": "success", "generadas": len(nuevas), "total": db.contar_lecturas()}
 
+# ---- Actualizar del canal automáticamente ------
+@app.get("/api/v1/sync/thingspeak")
+def sincronizar_thingspeak(
+    channel_id: str = Query(..., description="ID del canal de ThingSpeak"),
+    api_key: str = Query(None, description="Read API Key (si el canal es privado)")
+):
+    """
+    Obtiene los últimos datos directamente de la API de ThingSpeak,
+    los parsea y los inserta en la base de datos de forma idempotente.
+    """
+    url = f"https://api.thingspeak.com/channels/{channel_id}/feeds.json"
+    params = {}
+    if api_key:
+        params["api_key"] = api_key
+
+    try:
+        # Usamos requests, que ya está en tu requirements.txt
+        response = requests.get(url, params=params, timeout=15)
+        response.raise_for_status() 
+        raw_data = response.json()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Error al conectar con ThingSpeak: {exc}")
+
+    try:
+        lecturas, meta = parsear_thingspeak_json(raw_data)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Error en el formato de datos: {exc}")
+
+    if not lecturas:
+        return {"status": "empty", "mensaje": "ThingSpeak no devolvió lecturas numéricas nuevas."}
+
+    db.insertar_lote_idempotente(lecturas)
+    
+    return {
+        "status": "success",
+        "mensaje": f"Sincronizados {len(lecturas)} registros desde ThingSpeak.",
+        "lecturas_importadas": len(lecturas),
+        "total_en_servidor": db.contar_lecturas()
+    }
+
+# ---- Petición por fechas ------
+@app.get("/api/v1/fechas")
+def obtener_fechas():
+    return db.obtener_fechas_disponibles()
 
 # ---------------------------------------------------------------------------
 # Tablero web

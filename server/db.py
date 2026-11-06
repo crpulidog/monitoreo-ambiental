@@ -78,7 +78,10 @@ class CentralDatabase:
 
     def contar_lecturas(self) -> int:
         with self._get_connection() as conn:
-            return conn.cursor().execute("SELECT COUNT(*) FROM lectura").fetchone()[0]
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM lectura")
+            resultado = cur.fetchone()
+            return resultado[0] if resultado else 0 
 
     def obtener_resumen_sensores(self) -> List[Dict[str, Any]]:
         with self._get_connection() as conn:
@@ -161,23 +164,39 @@ class CentralDatabase:
             },
         }
 
-    def obtener_series_temporales(self, limite: int = 150) -> Dict[str, Any]:
+    def obtener_series_temporales(self, limite: int = 1500, fecha: str = None) -> Dict[str, Any]:
         """Lecturas ordenadas cronológicamente para graficación multivariante."""
         with self._get_connection() as conn:
             cur = conn.cursor()
             placeholder = "?" if self.is_sqlite else "%s"
-            cur.execute(f"""
-                SELECT sensor, valor, es_alerta, ts
-                FROM lectura
-                ORDER BY ts ASC
-                LIMIT {placeholder}
-                """, (limite,))
-            #cur.execute("""
-            #    SELECT sensor, valor, es_alerta, ts
-            #    FROM lectura
-            #    ORDER BY ts ASC
-            #    LIMIT ?
-            #    """, (limite,))
+            
+            if fecha:
+                if fecha == "todo":
+                    sql = """
+                        SELECT sensor, AVG(valor) as valor, MAX(es_alerta) as es_alerta, 
+                            MIN(ts) as ts
+                        FROM lectura
+                        GROUP BY sensor, DATE(ts)
+                        ORDER BY DATE(ts) ASC
+                    """
+                    cur.execute(sql)
+                else:
+                    sql = f"""
+                        SELECT sensor, valor, es_alerta, ts
+                        FROM lectura
+                        WHERE DATE(ts) = {placeholder}
+                        ORDER BY ts ASC
+                    """
+                    cur.execute(sql, (fecha,))
+            else:
+                sql = f"""
+                    SELECT sensor, valor, es_alerta, ts
+                    FROM lectura
+                    ORDER BY ts ASC
+                    LIMIT {placeholder}
+                """
+                cur.execute(sql, (limite,))
+                
             filas = (
                 [dict(r) for r in cur.fetchall()]
                 if self.is_sqlite
@@ -187,16 +206,16 @@ class CentralDatabase:
                 ]
             )
 
-        series: Dict[str, list] = {
-            "temperatura": [], "humedad": [], "pm25": [], "co2": []
-        }
+        series: Dict[str, list] = {}
         for f in filas:
-            if f["sensor"] in series:
-                series[f["sensor"]].append(
-                    {"ts": f["ts"], "valor": f["valor"], "alerta": bool(f["es_alerta"])}
-                )
+            sensor = f["sensor"]
+            if sensor not in series:
+                series[sensor] = []
+            series[sensor].append(
+                {"ts": f["ts"], "valor": f["valor"], "alerta": bool(f["es_alerta"])}
+            )
         return series
-
+    
     def obtener_alertas_recientes(self, limite: int = 15) -> List[Dict[str, Any]]:
         """Alertas críticas más recientes registradas en el sistema."""
         with self._get_connection() as conn:
@@ -213,3 +232,16 @@ class CentralDatabase:
                 return [dict(r) for r in cur.fetchall()]
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    def obtener_fechas_disponibles(self) -> List[str]:
+        with self._get_connection() as conn:
+            cur = conn.cursor()
+            # Extrae los días únicos (YYYY-MM-DD) ordenados del más reciente al más antiguo
+            cur.execute("""
+                SELECT DISTINCT DATE(ts) as dia 
+                FROM lectura 
+                ORDER BY dia DESC
+            """)
+            if self.is_sqlite:
+                return [row["dia"] for row in cur.fetchall()]
+            return [row[0] for row in cur.fetchall()]

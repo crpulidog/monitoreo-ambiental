@@ -10,6 +10,8 @@
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
     .gauge-glow { box-shadow: 0 0 15px rgba(16, 185, 129, 0.2); }
+    .chart-container { position: relative; height: 16rem; /* Equivalente a h-64 */ width: 100%;
+    }
   </style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen">
@@ -37,9 +39,9 @@
         <button onclick="abrirModalThingSpeak()" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition flex items-center space-x-1 shadow-sm shadow-indigo-950">
           <span>Importar ThingSpeak</span>
         </button>
-        <button onclick="simularDatos(false)" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">
+        <!--button onclick="simularDatos(false)" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">
            +5 Simulado
-        </button>
+        </button-->
         <button onclick="simularDatos(true)" class="px-3 py-1.5 rounded-lg bg-rose-600/80 hover:bg-rose-500 text-white font-medium transition">
            Simular Fuego
         </button>
@@ -166,36 +168,20 @@
     </section>
 
     <!-- Fila 3: Gráficos de Series Temporales -->
-    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      
-      <!-- Gráfico 1: Temp & Humedad -->
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
-        <div class="flex justify-between items-center mb-4">
-          <div>
-            <h3 class="text-sm font-semibold text-white">Evolución de Temperatura y Humedad</h3>
-            <p class="text-xs text-slate-400">Eje dual sincronizado con marcas UTC</p>
-          </div>
-          <span class="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-400">Tiempo Real</span>
-        </div>
-        <div class="h-64">
-          <canvas id="chart-temp-hum"></canvas>
-        </div>
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-400">Evolución de Variables</h2>      
+      <!-- Selector de Fecha -->
+      <div class="flex items-center space-x-2 text-sm">
+        <span class="text-slate-400">Fecha:</span>
+        <select id="date-picker" onchange="cargarSeriesTemporales(this.value)" 
+                class="bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-1 focus:outline-none focus:border-emerald-500">
+          <option value="">Últimas 24 horas</option>
+          <!-- Las fechas se inyectarán aquí con JavaScript -->
+        </select>
       </div>
-
-      <!-- Gráfico 2: PM2.5 & CO2 -->
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
-        <div class="flex justify-between items-center mb-4">
-          <div>
-            <h3 class="text-sm font-semibold text-white">Calidad del Aire: PM2.5 y CO₂</h3>
-            <p class="text-xs text-slate-400">Detección de conflagraciones y quemas de biomasa</p>
-          </div>
-          <span class="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-400">Partículas & Gases</span>
-        </div>
-        <div class="h-64">
-          <canvas id="chart-pm25-co2"></canvas>
-        </div>
-      </div>
-
+    </div>
+    <section id="graficos-dinamicos" class="flex flex-wrap justify-center gap-6">
+      <!-- Aquí JavaScript inyectará los gráficos -->
     </section>
 
     <!-- Fila 4: Alertas Críticas Priorizadas -->
@@ -356,12 +342,117 @@
       }
     }
 
-    async function cargarSeriesTemporales() {
-      try {
-        const res = await fetch('/api/v1/timeseries');
+    let charts = {};
+
+    async function cargarSeriesTemporales(fecha = null) {
+      try{
+        let url = '/api/v1/timeseries?limite=1500';
+        if (fecha) {
+          url = `/api/v1/timeseries?fecha=${fecha}`;
+        }
+        const res = await fetch(url);
+        // const res = await fetch('/api/v1/timeseries');
         if (!res.ok) return;
         const series = await res.json();
 
+        const container = document.getElementById('graficos-dinamicos');
+
+        const colores = {
+          temperatura: '#f43f5e', // Rojo
+          humedad: '#06b6d4',     // Cyan
+          pm25: '#a855f7',        // Morado
+          co2: '#10b981',         // Verde
+          iluminacion: '#fbbf24'  // Amarillo
+        };
+
+        for (const [sensorNombre, datos] of Object.entries(series)) {
+          console.log(`Sensor: ${sensorNombre}, Cantidad de datos: ${datos.length}`);
+          if (datos.length === 0) continue;
+
+          let cardId = `card-${sensorNombre}`;
+          if (!document.getElementById(cardId)) {
+            const cardHTML = `
+              <div id="${cardId}" class="w-full md:w-[calc(50%-1.5rem)] bg-slate-900 border border-slate-800 rounded-xl p-5">
+                <h3 class="text-sm font-semibold text-white capitalize">Evolución de ${sensorNombre}</h3>
+                <div class="h-64 mt-4"><canvas id="chart-${sensorNombre}"></canvas></div>
+              </div>
+            `;
+            container.insertAdjacentHTML('beforeend', cardHTML);
+          }
+
+          //const labels = datos.map(d => d.ts.substring(11, 19)); // Solo la hora
+          const labels = datos.map(d => {
+            const date = new Date(d.ts);
+            date.setHours(date.getHours() - 5); // Ajuste UTC-5
+            return date.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+          });
+          const valores = datos.map(d => d.valor);
+          const colorAsignado = colores[sensorNombre] || '#64748b'; // Color gris por defecto
+
+          const canvasContainer = document.querySelector(`#card-${sensorNombre} .chart-container`);
+          if (canvasContainer) {
+              canvasContainer.style.height = '16rem'; // 256px
+          }
+
+          if (!charts[sensorNombre]) {
+            const ctx = document.getElementById(`chart-${sensorNombre}`).getContext('2d');
+            charts[sensorNombre] = new Chart(ctx, {
+              type: 'line',
+              data: {
+                labels: labels,
+                datasets: [{
+                  label: sensorNombre.toUpperCase(),
+                  data: valores,
+                  borderColor: colorAsignado,
+                  backgroundColor: colorAsignado + '33', // Color con transparencia
+                  tension: 0.4,
+                  fill: true,
+                  pointRadius: 2
+                }]
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                  x: { 
+                    ticks: { color: '#64748b' }, 
+                    grid: { color: '#1e293b' },
+                    title: {
+                      display: true,
+                      text: 'Hora (Local)',
+                      color: '#94a3b8', // Color gris claro para el texto
+                      font: { size: 11, weight: 'bold' }
+                    }
+                  },
+                  y: { 
+                    ticks: { color: '#64748b' }, 
+                    grid: { color: '#1e293b' },
+                    title: {
+                      display: true,
+                      text: obtenerUnidad(sensorNombre), // Función para poner °C, %, etc.
+                      color: '#94a3b8',
+                      font: { size: 11, weight: 'bold' }
+                    }
+                  }
+                }
+              }
+            });
+          } else {
+            charts[sensorNombre].data.labels = labels;
+            charts[sensorNombre].data.datasets[0].data = valores;
+            charts[sensorNombre].update('none');
+          }
+        }
+      } catch (e) {
+        console.error("Error al cargar series:", e);
+      }
+      /**
+      try{
+        const res = await fetch('/api/v1/timeseries');
+        if (!res.ok) return;
+        const series = await res.json();
+      
         const formatLabels = (items) => items.map(d => d.ts ? d.ts.substring(11, 19) : '');
 
         // Gráfico 1: Temp & Humedad
@@ -494,7 +585,7 @@
 
       } catch (e) {
         console.error("Error al cargar series:", e);
-      }
+      } **/
     }
 
     async function cargarAlertas() {
@@ -536,6 +627,18 @@
       } catch (e) {
         console.error("Error al simular:", e);
       }
+    }
+
+    function obtenerUnidad(sensor) {
+      const unidades = {
+        temperatura: 'Temperatura (°C)',
+        humedad: 'Humedad (%)',
+        pm25: 'PM2.5 (µg/m³)',
+        co2: 'CO₂ (ppm)',
+        iluminacion: 'Iluminación (Lux)',
+        nivel_agua: 'Nivel de Agua (cm)'
+      };
+      return unidades[sensor] || 'Valor';
     }
 
     // Funciones del Modal de ThingSpeak
@@ -604,12 +707,25 @@
         return;
       }
 
+      /***
       let parsedPayload;
       try {
         parsedPayload = JSON.parse(input);
       } catch (err) {
         statusBox.className = "p-3.5 rounded-xl text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30";
         statusBox.innerHTML = ` Sintaxis JSON inválida: ${err.message}`;
+        statusBox.classList.remove('hidden');
+        return;
+      }
+      ***/
+      let parsedPayload;
+      try {
+        // .trim() elimina espacios y saltos de línea invisibles al inicio y final
+        const cleanInput = input.trim(); 
+        parsedPayload = JSON.parse(cleanInput);
+      } catch (err) {
+        statusBox.className = "p-3.5 rounded-xl text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30";
+        statusBox.innerHTML = ` Sintaxis JSON inválida: Revisa que no haya espacios al principio. Error: ${err.message}`;
         statusBox.classList.remove('hidden');
         return;
       }
@@ -662,16 +778,71 @@
       }
     }
 
-    function cargarTodo() {
-      cargarKPIs();
-      cargarSeriesTemporales();
-      cargarAlertas();
+  const THINGSPEAK_CHANNEL_ID = "3560161"; //Inirida
+  const THINGSPEAK_API_KEY = "";
+  
+  // Bandera para evitar múltiples sincronizaciones simultáneas
+  let isSyncing = false;
+
+    async function sincronizarConThingSpeak() {
+      if (isSyncing) return; // Evitar peticiones duplicadas
+      isSyncing = true;
+
+      try {
+        // Construir la URL con los parámetros
+        let url = `/api/v1/sync/thingspeak?channel_id=${THINGSPEAK_CHANNEL_ID}`;
+        if (THINGSPEAK_API_KEY) {
+          url += `&api_key=${THINGSPEAK_API_KEY}`;
+        }
+
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          console.log("Sincronización ThingSpeak:", data.mensaje);
+        } else {
+          console.warn("ThingSpeak no devolvió datos nuevos o hubo un error.");
+        }
+      } catch (e) {
+        console.error("Error al sincronizar con ThingSpeak:", e);
+      } finally {
+        isSyncing = false;
+      }
     }
 
-    // Carga inicial y auto-refresco cada 5 segundos
+    async function cargarFechasDisponibles() {
+      try {
+        const res = await fetch('/api/v1/fechas');
+        const fechas = await res.json();
+        const select = document.getElementById('date-picker');
+        
+        fechas.forEach(fecha => {
+          const option = document.createElement('option');
+          option.value = fecha;
+          option.textContent = fecha;
+          select.appendChild(option);
+        });
+      } catch (e) {
+        console.error("Error al cargar fechas:", e);
+      }
+    }
+
+    async function cargarTodo() {
+      try{
+        await sincronizarConThingSpeak();
+        await cargarKPIs();
+        await cargarSeriesTemporales();
+        await cargarAlertas();
+        console.log("Dashboard actualizado correctamente.");
+      } catch (e) {
+        console.error("Error al cargar todo el dashboard:", e);
+      }
+    }
+
+    // Carga inicial y auto-refresco cada 30 segundos
     window.addEventListener('DOMContentLoaded', () => {
+      cargarFechasDisponibles();
       cargarTodo();
-      setInterval(cargarTodo, 5000);
+      setInterval(cargarTodo, 30000);
     });
   </script>
 </body>
