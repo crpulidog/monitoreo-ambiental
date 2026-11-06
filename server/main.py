@@ -160,12 +160,19 @@ def obtener_alertas(limite: int = 15):
 @app.post("/api/v1/simulate")
 def simular_telemetria(con_alerta: bool = False, cantidad: int = 5):
     """Genera lecturas de demostración sin hardware físico conectado."""
-    sensores = ["temperatura", "humedad", "pm25", "co2"]
+    #sensores = ["temperatura", "humedad", "pm25", "co2"]
+    #rangos = {
+    #    "temperatura": ((24.0, 34.0), (46.0, 53.0)),
+    #    "humedad":     ((70.0, 95.0), (70.0, 95.0)),
+    #    "pm25":        ((8.0, 25.0),  (110.0, 220.0)),
+    #    "co2":         ((410.0, 540.0), (410.0, 540.0)),
+    #}
+    sensores = ["temperatura", "humedad"]
     rangos = {
         "temperatura": ((24.0, 34.0), (46.0, 53.0)),
         "humedad":     ((70.0, 95.0), (70.0, 95.0)),
-        "pm25":        ((8.0, 25.0),  (110.0, 220.0)),
-        "co2":         ((410.0, 540.0), (410.0, 540.0)),
+        #"pm25":        ((8.0, 25.0),  (110.0, 220.0)),
+        #"co2":         ((410.0, 540.0), (410.0, 540.0)),
     }
     nuevas = []
     for i in range(cantidad):
